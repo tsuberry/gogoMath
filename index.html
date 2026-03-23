@@ -4,27 +4,36 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Math Vibe Lab - 互動數學試題</title>
-    <!-- 載入 Tailwind CSS -->
+    <!-- 載入核心函式庫 -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- 載入 React 與 Babel -->
     <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-    <!-- 載入 Lucide 圖標 -->
     <script src="https://unpkg.com/lucide@latest"></script>
+    
     <!-- 載入 KaTeX 用於渲染數學公式 -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.css">
     <script src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.js"></script>
+
+    <!-- 載入 Firebase SDK -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, setDoc, getDocs, collection, query, onSnapshot, deleteDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        window.FirebaseSDK = { initializeApp, getAuth, signInAnonymously, onAuthStateChanged, getFirestore, doc, setDoc, getDocs, collection, query, onSnapshot, deleteDoc };
+    </script>
+
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&display=swap');
         body { font-family: 'Inter', sans-serif; background-color: #020408; color: #f8fafc; overflow-x: hidden; }
         .glass { background: rgba(255, 255, 255, 0.03); backdrop-filter: blur(20px); border: 1px solid rgba(255, 255, 255, 0.1); }
         .selection-none { user-select: none; }
-        .animate-in { animation-duration: 500ms; }
+        .animate-in { animation-duration: 400ms; }
         ::-webkit-scrollbar { width: 6px; }
         ::-webkit-scrollbar-track { background: transparent; }
         ::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.1); border-radius: 10px; }
         ::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.2); }
+        button:disabled { cursor: not-allowed; }
     </style>
 </head>
 <body>
@@ -33,33 +42,24 @@
     <script type="text/babel">
         const { useState, useMemo, useRef, useEffect } = React;
 
+        // --- 靜態題庫移出組件外，避免重複渲染 ---
+        const initialQuestions = [
+            { id: 1, type: 'tf', text: '一個長方體的長和寬不變，高變成原來的 4 倍，體積也會變成原來的 4 倍。', answer: 'O', explanation: '長方體體積 = 長 × 寬 × 高。' },
+            { id: 2, type: 'tf', text: '用小正方體積木堆成一個大的正方體，至少需要 8 個小正方體積木。', answer: 'O', explanation: '最小的大正方體需要 $2 \times 2 \times 2 = 8$ 個積木。' },
+            { id: 3, type: 'tf', text: '86 的 $\\frac{1}{100}$ 倍是 0.86，就是將小數點向左移二位。', answer: 'O', explanation: '除以 100 等於向左移二位。' },
+            { id: 4, type: 'mc', text: '「一盒蛋糕有 12 塊，全家人吃掉 $\\frac{5}{18}$ 盒，是吃掉多少塊？」下面哪一個算式是正確的？', options: ['$12 \\times \\frac{5}{18}$', '$12 - \\frac{5}{18}$', '$12 + \\frac{5}{18}$', '$12 \\div \\frac{5}{18}$'], answer: 0, explanation: '' },
+            { id: 5, type: 'mc', text: '74,000,000 毫升相當於多少立方公尺？', options: ['7400 立方公尺', '740 立方公尺', '74 立方公尺', '7.4 立方公尺'], answer: 2, explanation: '' },
+            { id: 6, type: 'mc', text: '「$0.01 \\times 0.0001$」的計算結果，和下面哪一個算式的結果一樣？', options: ['$0.001 \\times 0.001$', '$0.001 \\times 0.1$', '$0.001 \\times 0.0001$', '$0.1 \\times 0.0001$'], answer: 0, explanation: '' },
+            { id: 7, type: 'mc', text: '瑋玲拿一條長 26 公尺的繩子，剛好圍成一個長是 7.5 公尺的長方形，面積是多少？', options: ['41.25 平方公尺', '21.5 平方公尺', '43.35 平方公尺', '37 平方公尺'], answer: 0, explanation: '' },
+            { id: 8, type: 'mc', text: '下圖兩個造型都是用 1 立方公分的積木所排出來的，乙體積比甲大多少？', image: 'https://tsuberry.github.io/gogoMath/question001.jpg', options: ['10 立方公分', '20 立方公分', '30 立方公分', '40 立方公分'], answer: 0, explanation: '' },
+            { id: 9, type: 'mc', text: '下列哪一個選項的乘積最大？', options: ['$7 \\times \\frac{3}{3}$', '$7 \\times \\frac{4}{9}$', '$7 \\times \\frac{11}{4}$', '$7 \\times \\frac{12}{4}$'], answer: 3, explanation: '' }
+        ];
+
         /**
          * 數學文字渲染組件
-         * 支援將 $...$ 內的 LaTeX 語法渲染為 KaTeX 公式
          */
         const MathText = ({ text, className = "" }) => {
-            const containerRef = useRef(null);
-
-            useEffect(() => {
-                if (containerRef.current) {
-                    const content = text.split(/(\$[^\$]+\$)/g).map((part, index) => {
-                        if (part.startsWith('$') && part.endsWith('$')) {
-                            const latex = part.slice(1, -1);
-                            const span = document.createElement('span');
-                            try {
-                                window.katex.render(latex, span, { throwOnError: false, displayMode: false });
-                                return <span key={index} dangerouslySetInnerHTML={{ __html: span.innerHTML }} />;
-                            } catch (e) {
-                                return <span key={index}>{part}</span>;
-                            }
-                        }
-                        return <span key={index}>{part}</span>;
-                    });
-                    // React 渲染處理
-                }
-            }, [text]);
-
-            // 簡易實作：直接解析字串並渲染
+            if (!text) return null;
             const parts = text.split(/(\$[^\$]+\$)/g);
             return (
                 <span className={className}>
@@ -75,6 +75,9 @@
             );
         };
 
+        /**
+         * Icon 組件
+         */
         const Icon = ({ name, className }) => {
             const ref = useRef(null);
             useEffect(() => {
@@ -91,53 +94,132 @@
         };
 
         const App = () => {
-            const initialQuestions = [
-                { id: 1, type: 'tf', text: '一個長方體的長和寬不變，高變成原來的 4 倍，體積也會變成原來的 4 倍。', answer: 'O', explanation: '長方體體積 = 長 × 寬 × 高。' },
-                { id: 2, type: 'tf', text: '用小正方體積木堆成一個大的正方體，至少需要 8 個小正方體積木。', answer: 'O', explanation: '最小的大正方體需要 $2 \times 2 \times 2 = 8$ 個積木。' },
-                { id: 3, type: 'tf', text: '86 的 $\\frac{1}{100}$ 倍是 0.86，就是將小數點向左移二位。', answer: 'O', explanation: '除以 100 等於向左移二位。' },
-                { id: 4, type: 'mc', text: '「一盒蛋糕有 12 塊，全家人吃掉 $\\frac{5}{18}$ 盒，是吃掉多少塊？」下面哪一個算式是正確的？', options: ['$12 \\times \\frac{5}{18}$', '$12 - \\frac{5}{18}$', '$12 + \\frac{5}{18}$', '$12 \\div \\frac{5}{18}$'], answer: 0, explanation: '' },
-                { id: 5, type: 'mc', text: '74,000,000 毫升相當於多少立方公尺？', options: ['7400 立方公尺', '740 立方公尺', '74 立方公尺', '7.4 立方公尺'], answer: 2, explanation: '' },
-                { id: 6, type: 'mc', text: '「$0.01 \\times 0.0001$」的計算結果，和下面哪一個算式的結果一樣？', options: ['$0.001 \\times 0.001$', '$0.001 \\times 0.1$', '$0.001 \\times 0.0001$', '$0.1 \\times 0.0001$'], answer: 0, explanation: '' },
-                { id: 7, type: 'mc', text: '瑋玲拿一條長 26 公尺的繩子，剛好圍成一個長是 7.5 公尺的長方形，面積是多少？', options: ['41.25 平方公尺', '21.5 平方公尺', '43.35 平方公尺', '37 平方公尺'], answer: 0, explanation: '' },
-                { id: 8, type: 'mc', text: '下圖兩個造型都是用 1 立方公分的積木所排出來的，乙體積比甲大多少？', image: 'https://tsuberry.github.io/gogoMath/question001.jpg', options: ['10 立方公分', '20 立方公分', '30 立方公分', '40 立方公分'], answer: 0, explanation: '' },
-                { id: 9, type: 'mc', text: '下列哪一個選項的乘積最大？', options: ['$7 \\times \\frac{3}{3}$', '$7 \\times \\frac{4}{9}$', '$7 \\times \\frac{11}{4}$', '$7 \\times \\frac{12}{4}$'], answer: 3, explanation: '' }
-            ];
-
-            const [questions] = useState(initialQuestions);
+            const [user, setUser] = useState(null);
+            const [db, setDb] = useState(null);
+            const [userAnswers, setUserAnswers] = useState([]);
+            const [sessionQuestions, setSessionQuestions] = useState([]); // 獨立穩定的 Session 題庫
+            
+            const [filterMode, setFilterMode] = useState('unfinished'); 
             const [currentIndex, setCurrentIndex] = useState(0);
             const [selectedAnswer, setSelectedAnswer] = useState(null);
             const [showResult, setShowResult] = useState(false);
-            const [userAnswers, setUserAnswers] = useState([]); 
-            const [dailyStats, setDailyStats] = useState({ completed: 0, correct: 0 });
+            const [isProcessing, setIsProcessing] = useState(false);
+            const [loading, setLoading] = useState(true);
+            const [refreshTrigger, setRefreshTrigger] = useState(0);
 
-            const progress = useMemo(() => questions.length > 0 ? (currentIndex / questions.length) * 100 : 0, [currentIndex, questions.length]);
+            const appId = typeof __app_id !== 'undefined' ? __app_id : 'math-vibe-default';
             const optionLabels = ['①', '②', '③', '④'];
 
-            const handleAnswer = (choice) => {
-                if (showResult) return;
-                setSelectedAnswer(choice);
-                setShowResult(true);
-                const currentQuestion = questions[currentIndex];
-                const isCorrect = choice === currentQuestion.answer;
-                setUserAnswers(prev => [...prev, { questionId: currentQuestion.id, userChoice: choice, isCorrect: isCorrect }]);
-                setDailyStats(prev => ({ completed: prev.completed + 1, correct: isCorrect ? prev.correct + 1 : prev.correct }));
-            };
+            // 1. 初始化 Firebase
+            useEffect(() => {
+                const initFirebase = async () => {
+                    const { initializeApp, getAuth, signInAnonymously, onAuthStateChanged, getFirestore } = window.FirebaseSDK;
+                    const firebaseConfig = JSON.parse(__firebase_config);
+                    const app = initializeApp(firebaseConfig);
+                    const auth = getAuth(app);
+                    const firestore = getFirestore(app);
+                    setDb(firestore);
+                    await signInAnonymously(auth);
+                    onAuthStateChanged(auth, (u) => setUser(u));
+                };
+                initFirebase();
+            }, []);
 
-            const nextQuestion = () => {
-                if (currentIndex < questions.length) {
-                    setCurrentIndex(currentIndex + 1);
-                    setSelectedAnswer(null);
-                    setShowResult(false);
+            // 2. 獲取作答數據
+            useEffect(() => {
+                if (!user || !db) return;
+                const { collection, onSnapshot } = window.FirebaseSDK;
+                const progressCol = collection(db, 'artifacts', appId, 'users', user.uid, 'progress');
+                const unsubscribe = onSnapshot(progressCol, (snapshot) => {
+                    const answers = snapshot.docs.map(doc => doc.data());
+                    setUserAnswers(answers);
+                    setLoading(false);
+                }, () => setLoading(false));
+                return () => unsubscribe();
+            }, [user, db]);
+
+            // 3. 關鍵修復：建立穩定的「題庫清單 (Session)」
+            // 只在載入完成、切換模式、或主動重置 (refreshTrigger) 時，才會重新計算題目列表
+            // 這樣能防止在答題瞬間，題目列表縮減造成的自動跳題/連擊問題
+            useEffect(() => {
+                if (loading) return;
+                const answeredIds = new Set(userAnswers.map(a => a.questionId));
+                
+                if (filterMode === 'unfinished') {
+                    setSessionQuestions(initialQuestions.filter(q => !answeredIds.has(q.id)));
+                } else {
+                    setSessionQuestions(initialQuestions.filter(q => answeredIds.has(q.id)));
                 }
-            };
-
-            const resetQuiz = () => {
+                
                 setCurrentIndex(0);
                 setSelectedAnswer(null);
                 setShowResult(false);
-                setUserAnswers([]);
-                setDailyStats({ completed: 0, correct: 0 });
+                setIsProcessing(false);
+            }, [filterMode, loading, refreshTrigger]);
+
+            const handleAnswer = async (choice) => {
+                // 嚴格防止連擊
+                if (showResult || isProcessing || !user || !db) return;
+                
+                setIsProcessing(true);
+                const currentQuestion = sessionQuestions[currentIndex];
+                if (!currentQuestion) {
+                    setIsProcessing(false);
+                    return;
+                }
+
+                const isCorrect = choice === currentQuestion.answer;
+                
+                setSelectedAnswer(choice);
+                setShowResult(true);
+
+                try {
+                    const { doc, setDoc } = window.FirebaseSDK;
+                    const answerDoc = doc(db, 'artifacts', appId, 'users', user.uid, 'progress', currentQuestion.id.toString());
+                    await setDoc(answerDoc, {
+                        questionId: currentQuestion.id,
+                        userChoice: choice,
+                        isCorrect: isCorrect,
+                        timestamp: Date.now()
+                    });
+                } catch (e) {
+                    console.error("Save failed:", e);
+                } finally {
+                    // 解除鎖定，等待使用者按「下一題」
+                    setIsProcessing(false); 
+                }
             };
+
+            const nextQuestion = () => {
+                if (currentIndex < sessionQuestions.length) {
+                    setSelectedAnswer(null);
+                    setShowResult(false);
+                    setCurrentIndex(prev => prev + 1);
+                }
+            };
+
+            const clearAllProgress = async () => {
+                if (!user || !db) return;
+                setLoading(true);
+                const { collection, getDocs, deleteDoc, doc } = window.FirebaseSDK;
+                const progressCol = collection(db, 'artifacts', appId, 'users', user.uid, 'progress');
+                const snapshot = await getDocs(progressCol);
+                const promises = snapshot.docs.map(d => deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'progress', d.id)));
+                await Promise.all(promises);
+                
+                setFilterMode('unfinished');
+                setRefreshTrigger(prev => prev + 1); // 強制刷新穩定題庫
+                setLoading(false);
+            };
+
+            if (loading) return (
+                <div className="min-h-screen flex items-center justify-center bg-[#020408]">
+                    <div className="w-8 h-8 border-4 border-indigo-500/20 border-t-indigo-500 rounded-full animate-spin"></div>
+                </div>
+            );
+
+            // 當前題目物件
+            const activeQ = sessionQuestions[currentIndex];
 
             return (
                 <div className="min-h-screen selection-none pb-20">
@@ -151,52 +233,73 @@
                             <div className="w-10 h-10 bg-gradient-to-br from-indigo-500 to-fuchsia-500 rounded-xl flex items-center justify-center shadow-lg">
                                 <Icon name="book-open" className="text-white w-6 h-6" />
                             </div>
-                            <h1 className="text-xl font-black tracking-tighter">MATH <span className="text-indigo-400">VIBE</span></h1>
+                            <h1 className="text-xl font-black tracking-tighter uppercase">Math <span className="text-indigo-400">Vibe</span></h1>
                         </div>
-                        <div className="text-right">
-                           <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest mr-2">Progression</span>
-                           <span className="text-sm font-bold text-white tabular-nums">{currentIndex >= questions.length ? questions.length : currentIndex + 1} / {questions.length}</span>
+                        <div className="flex bg-white/5 p-1 rounded-xl border border-white/10">
+                            <button 
+                                onClick={() => setFilterMode('unfinished')} 
+                                className={`px-4 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${filterMode === 'unfinished' ? 'bg-indigo-500 text-white' : 'text-slate-500 hover:text-white'}`}
+                            >
+                                未完成
+                            </button>
+                            <button 
+                                onClick={() => setFilterMode('finished')} 
+                                className={`px-4 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${filterMode === 'finished' ? 'bg-indigo-500 text-white' : 'text-slate-500 hover:text-white'}`}
+                            >
+                                已完成
+                            </button>
                         </div>
                     </nav>
 
                     <main className="max-w-4xl mx-auto px-4 mt-8">
-                        {currentIndex < questions.length ? (
-                            <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                        {filterMode === 'unfinished' && activeQ ? (
+                            <div key={activeQ.id} className="space-y-8 animate-in fade-in slide-in-from-bottom-4">
                                 <div className="w-full h-1.5 bg-white/5 rounded-full overflow-hidden">
-                                    <div className="h-full bg-gradient-to-r from-indigo-500 to-fuchsia-500 transition-all duration-700" style={{ width: `${progress}%` }}></div>
+                                    <div className="h-full bg-gradient-to-r from-indigo-500 to-fuchsia-500 transition-all duration-700" style={{ width: `${((currentIndex) / sessionQuestions.length) * 100}%` }}></div>
                                 </div>
 
                                 <div className="glass p-8 md:p-12 rounded-[2.5rem] shadow-2xl space-y-10">
                                     <div className="space-y-6">
-                                        <div className="inline-block px-3 py-1 rounded-full bg-white/5 border border-white/10 text-[10px] font-black text-indigo-400 uppercase tracking-widest">
-                                            {questions[currentIndex].type === 'tf' ? '是非題' : '選擇題'}
+                                        <div className="flex justify-between items-center">
+                                            <div className="inline-block px-3 py-1 rounded-full bg-white/5 border border-white/10 text-[10px] font-black text-indigo-400 uppercase tracking-widest">
+                                                {activeQ.type === 'tf' ? '是非題' : '選擇題'}
+                                            </div>
+                                            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-tighter">
+                                                Progress: {currentIndex + 1} / {sessionQuestions.length}
+                                            </span>
                                         </div>
-                                        <h2 className="text-2xl md:text-3xl font-bold leading-snug">
-                                            <MathText text={questions[currentIndex].text} />
+                                        <h2 className="text-2xl md:text-3xl font-bold leading-snug tracking-tight">
+                                            <MathText text={activeQ.text} />
                                         </h2>
-                                        {questions[currentIndex].image && (
+                                        {activeQ.image && (
                                             <div className="rounded-2xl overflow-hidden border border-white/10 bg-black/40 max-w-lg mx-auto">
-                                                <img src={questions[currentIndex].image} className="w-full h-auto object-contain" alt="題目圖片" />
+                                                <img src={activeQ.image} className="w-full h-auto object-contain" alt="題目圖片" />
                                             </div>
                                         )}
                                     </div>
 
-                                    <div className={`grid ${questions[currentIndex].type === 'tf' ? 'grid-cols-2' : 'grid-cols-1 md:grid-cols-2'} gap-4`}>
-                                        {questions[currentIndex].type === 'tf' ? (
+                                    <div className={`grid ${activeQ.type === 'tf' ? 'grid-cols-2' : 'grid-cols-1 md:grid-cols-2'} gap-4`}>
+                                        {activeQ.type === 'tf' ? (
                                             ['O', 'X'].map(choice => (
-                                                <button key={choice} onClick={() => handleAnswer(choice)} disabled={showResult}
-                                                    className={`p-8 rounded-3xl border transition-all duration-300 flex flex-col items-center gap-3 ${showResult && questions[currentIndex].answer === choice ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-400 shadow-lg shadow-emerald-500/10' : showResult && selectedAnswer === choice ? 'bg-red-500/20 border-red-500/50 text-red-400' : 'bg-white/5 border-white/10 text-slate-400 hover:text-white hover:bg-white/10'}`}
+                                                <button 
+                                                    key={choice} 
+                                                    onClick={() => handleAnswer(choice)} 
+                                                    disabled={showResult || isProcessing}
+                                                    className={`p-8 rounded-3xl border transition-all duration-300 flex flex-col items-center gap-3 ${showResult && activeQ.answer === choice ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-400 shadow-lg' : showResult && selectedAnswer === choice ? 'bg-red-500/20 border-red-500/50 text-red-400' : (showResult || isProcessing ? 'opacity-50 cursor-not-allowed' : 'bg-white/5 border-white/10 text-slate-400 hover:text-white hover:bg-white/10 active:scale-95')}`}
                                                 >
                                                     <Icon name={choice === 'O' ? 'check-circle-2' : 'x-circle'} className="w-10 h-10" />
                                                     <span className="font-black text-lg">{choice === 'O' ? 'TRUE (O)' : 'FALSE (X)'}</span>
                                                 </button>
                                             ))
                                         ) : (
-                                            questions[currentIndex].options.map((opt, idx) => (
-                                                <button key={idx} onClick={() => handleAnswer(idx)} disabled={showResult}
-                                                    className={`p-5 rounded-2xl border text-left transition-all duration-300 flex items-center gap-4 ${showResult && questions[currentIndex].answer === idx ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-400 shadow-lg shadow-emerald-500/10' : showResult && selectedAnswer === idx ? 'bg-red-500/20 border-red-500/50 text-red-400' : 'bg-white/5 border-white/10 text-slate-400 hover:text-white hover:bg-white/10'}`}
+                                            activeQ.options.map((opt, idx) => (
+                                                <button 
+                                                    key={idx} 
+                                                    onClick={() => handleAnswer(idx)} 
+                                                    disabled={showResult || isProcessing}
+                                                    className={`p-5 rounded-2xl border text-left transition-all duration-300 flex items-center gap-4 ${showResult && activeQ.answer === idx ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-400 shadow-lg' : showResult && selectedAnswer === idx ? 'bg-red-500/20 border-red-500/50 text-red-400' : (showResult || isProcessing ? 'opacity-50 cursor-not-allowed' : 'bg-white/5 border-white/10 text-slate-400 hover:text-white hover:bg-white/10 active:scale-95')}`}
                                                 >
-                                                    <div className={`w-10 h-10 shrink-0 rounded-lg flex items-center justify-center font-black ${showResult && questions[currentIndex].answer === idx ? 'bg-emerald-500 text-white' : 'bg-white/10'}`}>
+                                                    <div className={`w-10 h-10 shrink-0 rounded-lg flex items-center justify-center font-black ${showResult && activeQ.answer === idx ? 'bg-emerald-500 text-white shadow-md' : 'bg-white/10'}`}>
                                                         {optionLabels[idx]}
                                                     </div>
                                                     <MathText text={opt} className="font-bold text-lg" />
@@ -206,85 +309,86 @@
                                     </div>
 
                                     {showResult && (
-                                        <div className="p-6 rounded-3xl bg-indigo-500/10 border border-indigo-500/20 animate-in zoom-in-95">
+                                        <div className="p-6 rounded-3xl bg-indigo-500/10 border border-indigo-500/20 animate-in zoom-in-95 backdrop-blur-sm shadow-xl">
                                             <div className="flex items-center gap-4 mb-4">
-                                                <Icon name={selectedAnswer === questions[currentIndex].answer ? 'check-circle-2' : 'x-circle'} className={`w-8 h-8 ${selectedAnswer === questions[currentIndex].answer ? 'text-emerald-400' : 'text-red-400'}`} />
+                                                <Icon name={selectedAnswer === activeQ.answer ? 'check-circle-2' : 'x-circle'} className={`w-8 h-8 ${selectedAnswer === activeQ.answer ? 'text-emerald-400' : 'text-red-400'}`} />
                                                 <p className="font-black text-xl italic uppercase tracking-tighter">
-                                                    {selectedAnswer === questions[currentIndex].answer ? 'Excellent' : 'Review Logic'}
+                                                    {selectedAnswer === activeQ.answer ? 'Excellent' : 'Review Logic'}
                                                 </p>
                                             </div>
                                             <button onClick={nextQuestion} className="w-full py-4 bg-white text-slate-950 font-black rounded-2xl shadow-xl active:scale-95 transition-all uppercase tracking-widest text-sm italic">
-                                                {currentIndex === questions.length - 1 ? 'Finish' : 'Next Question'}
+                                                {currentIndex === sessionQuestions.length - 1 ? '查看結果清單' : '進入下一題'}
                                             </button>
                                         </div>
                                     )}
                                 </div>
                             </div>
                         ) : (
-                            <div className="space-y-10 animate-in fade-in duration-1000">
-                                <div className="glass p-10 rounded-[3rem] text-center space-y-6 shadow-2xl border-indigo-500/20">
-                                    <Icon name="trophy" className="w-16 h-16 text-amber-400 mx-auto animate-bounce mb-2" />
-                                    <h2 className="text-3xl font-black italic tracking-tighter uppercase leading-none">Session Complete</h2>
-                                    <div className="flex justify-center gap-8 py-2">
-                                        <div className="text-center">
-                                            <p className="text-[10px] text-slate-500 font-black uppercase tracking-widest">Correct</p>
-                                            <p className="text-3xl font-black text-emerald-400">{dailyStats.correct}</p>
-                                        </div>
-                                        <div className="text-center">
-                                            <p className="text-[10px] text-slate-500 font-black uppercase tracking-widest">Accuracy</p>
-                                            <p className="text-3xl font-black text-indigo-400">{Math.round((dailyStats.correct/questions.length)*100)}%</p>
-                                        </div>
+                            <div className="space-y-10 animate-in fade-in duration-700 pb-20">
+                                <div className="glass p-10 rounded-[3rem] text-center space-y-6 shadow-2xl border-indigo-500/10">
+                                    <Icon name="award" className="w-16 h-16 text-amber-400 mx-auto animate-bounce mb-2" />
+                                    <h2 className="text-3xl font-black italic tracking-tighter uppercase leading-none">
+                                        {filterMode === 'unfinished' ? '任務清空！' : '作答數據回顧'}
+                                    </h2>
+                                    <p className="text-slate-500 text-sm font-bold uppercase tracking-[0.2em]">完成度: {userAnswers.length} / {initialQuestions.length}</p>
+                                    <div className="flex justify-center gap-4 pt-2">
+                                        <button onClick={() => {setFilterMode('unfinished'); setRefreshTrigger(prev=>prev+1);}} className="px-8 py-3 bg-white text-slate-900 font-black rounded-2xl shadow-xl active:scale-95 transition-all text-sm uppercase italic tracking-widest">
+                                            繼續挑戰
+                                        </button>
+                                        <button onClick={clearAllProgress} className="px-6 py-3 bg-red-500/10 border border-red-500/20 text-red-400 font-bold rounded-2xl active:scale-95 transition-all text-[10px] uppercase">
+                                            清空進度
+                                        </button>
                                     </div>
-                                    <button onClick={resetQuiz} className="px-10 py-3 bg-white text-slate-900 font-black rounded-2xl shadow-xl active:scale-95 transition-all text-sm uppercase">Restart Quiz</button>
                                 </div>
 
                                 <div className="space-y-4">
-                                    <h3 className="text-[10px] font-black text-slate-500 uppercase tracking-[0.4em] px-2">Performance Review</h3>
+                                    <h3 className="text-[10px] font-black text-slate-500 uppercase tracking-[0.4em] px-2 flex items-center gap-2">
+                                        <Icon name="history" className="w-3 h-3" /> Result History
+                                    </h3>
                                     
                                     <div className="grid gap-3">
-                                        {questions.map((q, idx) => {
+                                        {sessionQuestions.length === 0 && <div className="text-center py-20 opacity-20 text-[10px] uppercase font-black tracking-widest">暫無數據</div>}
+                                        {sessionQuestions.map((q, idx) => {
                                             const record = userAnswers.find(a => a.questionId === q.id);
                                             return (
-                                                <div key={q.id} className={`glass p-4 md:p-6 rounded-2xl border-l-4 transition-all hover:bg-white/[0.05] ${record?.isCorrect ? 'border-l-emerald-500' : 'border-l-red-500'}`}>
-                                                    <div className="flex flex-col md:flex-row md:items-start justify-between gap-4">
+                                                <div key={q.id} className={`glass p-5 md:p-6 rounded-[2rem] border-l-[6px] transition-all hover:bg-white/[0.04] ${record?.isCorrect ? 'border-l-emerald-500 shadow-md shadow-emerald-500/5' : 'border-l-red-500 shadow-md shadow-red-500/5'}`}>
+                                                    <div className="flex flex-col md:flex-row md:items-start justify-between gap-6">
                                                         <div className="flex-1 min-w-0">
-                                                            <div className="flex items-center gap-2 mb-2">
-                                                                <span className="text-[9px] font-black text-slate-600 bg-white/5 px-1.5 py-0.5 rounded tracking-tighter uppercase">NO.{idx + 1}</span>
-                                                                <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded-full ${record?.isCorrect ? 'bg-emerald-500/10 text-emerald-400' : 'bg-red-500/10 text-red-400'}`}>
+                                                            <div className="flex items-center gap-2 mb-3">
+                                                                <span className="text-[9px] font-black text-slate-600 bg-white/5 px-2 py-0.5 rounded tracking-tighter uppercase">No.{idx+1}</span>
+                                                                <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded-full ${record?.isCorrect ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-red-500/10 text-red-400 border border-red-500/20'}`}>
                                                                     {record?.isCorrect ? 'Correct' : 'Incorrect'}
                                                                 </span>
                                                             </div>
-                                                            <h4 className="text-sm md:text-base font-bold text-slate-100 leading-snug mb-3">
+                                                            <h4 className="text-base md:text-lg font-bold text-slate-100 leading-snug mb-4">
                                                                 <MathText text={q.text} />
                                                             </h4>
-                                                            
                                                             {q.image && (
-                                                                <div className="rounded-xl overflow-hidden border border-white/5 bg-black/40 mb-4 max-w-[180px]">
-                                                                    <img src={q.image} className="w-full h-auto" alt="題目圖片" />
+                                                                <div className="rounded-2xl overflow-hidden border border-white/5 bg-black/40 mb-4 max-w-[150px]">
+                                                                    <img src={q.image} className="w-full h-auto" alt="回顧圖片" />
                                                                 </div>
                                                             )}
-
                                                             {q.type === 'mc' && (
                                                                 <div className="flex flex-wrap gap-2 mb-2">
                                                                     {q.options.map((opt, i) => (
-                                                                        <div key={i} className={`px-2 py-1 rounded-md text-[10px] font-medium border flex items-center gap-1.5 ${q.answer === i ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : (record?.userChoice === i ? 'bg-red-500/10 border-red-500/20 text-red-400' : 'bg-white/5 border-white/5 text-slate-500')}`}>
-                                                                            <span className="opacity-60">{optionLabels[i]}</span> <MathText text={opt} />
+                                                                        <div key={i} className={`px-2 py-1 rounded-lg text-[10px] font-medium border flex items-center gap-1.5 ${q.answer === i ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : (record?.userChoice === i ? 'bg-red-500/10 border-red-500/20 text-red-400' : 'bg-white/5 border-white/5 text-slate-500')}`}>
+                                                                            <span className="opacity-60 text-[8px] font-black">{optionLabels[i]}</span> <MathText text={opt} />
                                                                         </div>
                                                                     ))}
                                                                 </div>
                                                             )}
                                                         </div>
 
-                                                        <div className="flex md:flex-col gap-2 shrink-0 md:w-28">
-                                                            <div className="flex-1 p-2 rounded-lg bg-white/5 border border-white/5 text-center">
-                                                                <p className="text-[8px] font-bold text-slate-600 uppercase mb-0.5">Yours</p>
+                                                        <div className="flex md:flex-col gap-2 shrink-0 md:w-32">
+                                                            <div className="flex-1 p-2 rounded-xl bg-white/5 border border-white/5 text-center">
+                                                                <p className="text-[8px] font-bold text-slate-600 uppercase mb-0.5 tracking-tighter">Your Pick</p>
                                                                 <p className={`text-xs font-black ${record?.isCorrect ? 'text-emerald-400' : 'text-red-400'}`}>
                                                                     {q.type === 'tf' ? record?.userChoice : optionLabels[record?.userChoice]}
                                                                 </p>
                                                             </div>
-                                                            <div className="flex-1 p-2 rounded-lg bg-indigo-500/10 border border-indigo-500/20 text-center">
-                                                                <p className="text-[8px] font-bold text-indigo-500 uppercase mb-0.5">Ans</p>
-                                                                <p className="text-xs font-black text-indigo-400">
+                                                            <div className="flex-1 p-2 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-center">
+                                                                <p className="text-[8px] font-bold text-indigo-500 uppercase mb-0.5 tracking-tighter">Answer</p>
+                                                                <p className="text-xs font-black text-indigo-400 italic">
                                                                     {q.type === 'tf' ? q.answer : optionLabels[q.answer]}
                                                                 </p>
                                                             </div>
@@ -300,11 +404,9 @@
                     </main>
 
                     <footer className="fixed bottom-4 left-0 right-0 flex justify-center pointer-events-none z-50">
-                        <div className="glass px-4 py-1.5 rounded-full border border-white/5">
-                            <p className="text-[8px] text-slate-600 font-bold uppercase tracking-[0.5em] flex items-center gap-2">
-                                <span className="w-1 h-1 bg-indigo-500 rounded-full animate-pulse"></span>
-                                Math Vibe Lab • KaTeX Enhanced
-                            </p>
+                        <div className="glass px-5 py-2 rounded-full border border-white/10 shadow-2xl flex items-center gap-3 backdrop-blur-xl">
+                            <span className="w-1.5 h-1.5 bg-indigo-500 rounded-full animate-pulse"></span>
+                            <p className="text-[8px] text-slate-500 font-bold uppercase tracking-[0.5em] italic">Math Vibe Lab • Stability v4.0</p>
                         </div>
                     </footer>
                 </div>
