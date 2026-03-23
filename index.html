@@ -15,7 +15,7 @@
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.css">
     <script src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.js"></script>
 
-    <!-- 載入 Firebase SDK -->
+    <!-- 載入 Firebase SDK (作為雲端環境備用) -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
@@ -42,7 +42,7 @@
     <script type="text/babel">
         const { useState, useMemo, useRef, useEffect } = React;
 
-        // --- 靜態題庫移出組件外，避免重複渲染 ---
+        // --- 靜態題庫 ---
         const initialQuestions = [
             { id: 1, type: 'tf', text: '一個長方體的長和寬不變，高變成原來的 4 倍，體積也會變成原來的 4 倍。', answer: 'O', explanation: '長方體體積 = 長 × 寬 × 高。' },
             { id: 2, type: 'tf', text: '用小正方體積木堆成一個大的正方體，至少需要 8 個小正方體積木。', answer: 'O', explanation: '最小的大正方體需要 $2 \times 2 \times 2 = 8$ 個積木。' },
@@ -97,7 +97,7 @@
             const [user, setUser] = useState(null);
             const [db, setDb] = useState(null);
             const [userAnswers, setUserAnswers] = useState([]);
-            const [sessionQuestions, setSessionQuestions] = useState([]); // 獨立穩定的 Session 題庫
+            const [sessionQuestions, setSessionQuestions] = useState([]); 
             
             const [filterMode, setFilterMode] = useState('unfinished'); 
             const [currentIndex, setCurrentIndex] = useState(0);
@@ -110,24 +110,49 @@
             const appId = typeof __app_id !== 'undefined' ? __app_id : 'math-vibe-default';
             const optionLabels = ['①', '②', '③', '④'];
 
-            // 1. 初始化 Firebase
+            // 1. 智能初始化儲存環境 (支援本地 localStorage 與 雲端 Firebase)
             useEffect(() => {
-                const initFirebase = async () => {
-                    const { initializeApp, getAuth, signInAnonymously, onAuthStateChanged, getFirestore } = window.FirebaseSDK;
-                    const firebaseConfig = JSON.parse(__firebase_config);
-                    const app = initializeApp(firebaseConfig);
-                    const auth = getAuth(app);
-                    const firestore = getFirestore(app);
-                    setDb(firestore);
-                    await signInAnonymously(auth);
-                    onAuthStateChanged(auth, (u) => setUser(u));
+                const initStorage = async () => {
+                    // 如果沒有 Firebase 環境變數，切換至本地儲存模式
+                    if (typeof __firebase_config === 'undefined') {
+                        const localData = localStorage.getItem('math_vibe_progress');
+                        if (localData) {
+                            setUserAnswers(JSON.parse(localData));
+                        }
+                        setLoading(false);
+                        return;
+                    }
+
+                    // 如果有 Firebase 環境，進行雲端連線
+                    try {
+                        let retries = 20;
+                        while (!window.FirebaseSDK && retries > 0) {
+                            await new Promise(r => setTimeout(r, 50));
+                            retries--;
+                        }
+                        if (window.FirebaseSDK) {
+                            const { initializeApp, getAuth, signInAnonymously, onAuthStateChanged, getFirestore } = window.FirebaseSDK;
+                            const firebaseConfig = JSON.parse(__firebase_config);
+                            const app = initializeApp(firebaseConfig);
+                            const auth = getAuth(app);
+                            const firestore = getFirestore(app);
+                            setDb(firestore);
+                            await signInAnonymously(auth);
+                            onAuthStateChanged(auth, (u) => setUser(u));
+                        } else {
+                            setLoading(false);
+                        }
+                    } catch (e) {
+                        console.error("Firebase init failed, switching to local.", e);
+                        setLoading(false);
+                    }
                 };
-                initFirebase();
+                initStorage();
             }, []);
 
-            // 2. 獲取作答數據
+            // 2. 雲端模式進度監聽
             useEffect(() => {
-                if (!user || !db) return;
+                if (typeof __firebase_config === 'undefined' || !user || !db) return;
                 const { collection, onSnapshot } = window.FirebaseSDK;
                 const progressCol = collection(db, 'artifacts', appId, 'users', user.uid, 'progress');
                 const unsubscribe = onSnapshot(progressCol, (snapshot) => {
@@ -138,9 +163,7 @@
                 return () => unsubscribe();
             }, [user, db]);
 
-            // 3. 關鍵修復：建立穩定的「題庫清單 (Session)」
-            // 只在載入完成、切換模式、或主動重置 (refreshTrigger) 時，才會重新計算題目列表
-            // 這樣能防止在答題瞬間，題目列表縮減造成的自動跳題/連擊問題
+            // 3. 穩定的題庫清單控制
             useEffect(() => {
                 if (loading) return;
                 const answeredIds = new Set(userAnswers.map(a => a.questionId));
@@ -159,7 +182,7 @@
 
             const handleAnswer = async (choice) => {
                 // 嚴格防止連擊
-                if (showResult || isProcessing || !user || !db) return;
+                if (showResult || isProcessing) return;
                 
                 setIsProcessing(true);
                 const currentQuestion = sessionQuestions[currentIndex];
@@ -169,24 +192,37 @@
                 }
 
                 const isCorrect = choice === currentQuestion.answer;
-                
                 setSelectedAnswer(choice);
                 setShowResult(true);
 
-                try {
-                    const { doc, setDoc } = window.FirebaseSDK;
-                    const answerDoc = doc(db, 'artifacts', appId, 'users', user.uid, 'progress', currentQuestion.id.toString());
-                    await setDoc(answerDoc, {
-                        questionId: currentQuestion.id,
-                        userChoice: choice,
-                        isCorrect: isCorrect,
-                        timestamp: Date.now()
+                const newRecord = {
+                    questionId: currentQuestion.id,
+                    userChoice: choice,
+                    isCorrect: isCorrect,
+                    timestamp: Date.now()
+                };
+
+                // 根據環境決定存到哪裡
+                if (typeof __firebase_config === 'undefined') {
+                    // 寫入瀏覽器 LocalStorage
+                    setUserAnswers(prev => {
+                        const updated = [...prev, newRecord];
+                        localStorage.setItem('math_vibe_progress', JSON.stringify(updated));
+                        return updated;
                     });
-                } catch (e) {
-                    console.error("Save failed:", e);
-                } finally {
-                    // 解除鎖定，等待使用者按「下一題」
-                    setIsProcessing(false); 
+                    setIsProcessing(false);
+                } else {
+                    // 寫入雲端 Firebase
+                    if (!user || !db) { setIsProcessing(false); return; }
+                    try {
+                        const { doc, setDoc } = window.FirebaseSDK;
+                        const answerDoc = doc(db, 'artifacts', appId, 'users', user.uid, 'progress', currentQuestion.id.toString());
+                        await setDoc(answerDoc, newRecord);
+                    } catch (e) {
+                        console.error("Save failed:", e);
+                    } finally {
+                        setIsProcessing(false); 
+                    }
                 }
             };
 
@@ -199,22 +235,39 @@
             };
 
             const clearAllProgress = async () => {
-                if (!user || !db) return;
                 setLoading(true);
-                const { collection, getDocs, deleteDoc, doc } = window.FirebaseSDK;
-                const progressCol = collection(db, 'artifacts', appId, 'users', user.uid, 'progress');
-                const snapshot = await getDocs(progressCol);
-                const promises = snapshot.docs.map(d => deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'progress', d.id)));
-                await Promise.all(promises);
+                
+                if (typeof __firebase_config === 'undefined') {
+                    localStorage.removeItem('math_vibe_progress');
+                    setUserAnswers([]);
+                    setFilterMode('unfinished');
+                    setRefreshTrigger(prev => prev + 1);
+                    setLoading(false);
+                    return;
+                }
+
+                if (!user || !db) return;
+                try {
+                    const { collection, getDocs, deleteDoc, doc } = window.FirebaseSDK;
+                    const progressCol = collection(db, 'artifacts', appId, 'users', user.uid, 'progress');
+                    const snapshot = await getDocs(progressCol);
+                    const promises = snapshot.docs.map(d => deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'progress', d.id)));
+                    await Promise.all(promises);
+                } catch(e) {
+                    console.error("Clear failed:", e);
+                }
                 
                 setFilterMode('unfinished');
-                setRefreshTrigger(prev => prev + 1); // 強制刷新穩定題庫
+                setRefreshTrigger(prev => prev + 1);
                 setLoading(false);
             };
 
             if (loading) return (
                 <div className="min-h-screen flex items-center justify-center bg-[#020408]">
-                    <div className="w-8 h-8 border-4 border-indigo-500/20 border-t-indigo-500 rounded-full animate-spin"></div>
+                    <div className="text-center space-y-4">
+                        <div className="w-8 h-8 border-4 border-indigo-500/20 border-t-indigo-500 rounded-full animate-spin mx-auto"></div>
+                        <p className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-500">Initializing Lab...</p>
+                    </div>
                 </div>
             );
 
@@ -406,7 +459,7 @@
                     <footer className="fixed bottom-4 left-0 right-0 flex justify-center pointer-events-none z-50">
                         <div className="glass px-5 py-2 rounded-full border border-white/10 shadow-2xl flex items-center gap-3 backdrop-blur-xl">
                             <span className="w-1.5 h-1.5 bg-indigo-500 rounded-full animate-pulse"></span>
-                            <p className="text-[8px] text-slate-500 font-bold uppercase tracking-[0.5em] italic">Math Vibe Lab • Stability v4.0</p>
+                            <p className="text-[8px] text-slate-500 font-bold uppercase tracking-[0.5em] italic">Math Vibe Lab • Hybrid Sync v4.1</p>
                         </div>
                     </footer>
                 </div>
