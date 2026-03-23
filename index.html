@@ -14,10 +14,15 @@
     <script src="https://unpkg.com/lucide@latest"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&display=swap');
-        body { font-family: 'Inter', sans-serif; background-color: #020408; color: #f8fafc; }
+        body { font-family: 'Inter', sans-serif; background-color: #020408; color: #f8fafc; overflow-x: hidden; }
         .glass { background: rgba(255, 255, 255, 0.03); backdrop-filter: blur(20px); border: 1px solid rgba(255, 255, 255, 0.1); }
-        .neon-border { box-shadow: 0 0 15px rgba(99, 102, 241, 0.2); }
         .selection-none { user-select: none; }
+        .animate-in { animation-duration: 500ms; }
+        /* 滾動條美化 */
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.1); border-radius: 10px; }
+        ::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.2); }
     </style>
 </head>
 <body>
@@ -26,294 +31,243 @@
     <script type="text/babel">
         const { useState, useMemo, useRef, useEffect } = React;
 
-        // 圖標組件封裝
+        /**
+         * Icon 組件 (防止 React DOM 操作衝突)
+         */
         const Icon = ({ name, className }) => {
+            const ref = useRef(null);
             useEffect(() => {
-                if (window.lucide) window.lucide.createIcons();
-            }, [name]);
-            return <i data-lucide={name} className={className}></i>;
+                if (window.lucide && ref.current) {
+                    ref.current.innerHTML = '';
+                    const i = document.createElement('i');
+                    i.setAttribute('data-lucide', name);
+                    if (className) i.setAttribute('class', className);
+                    ref.current.appendChild(i);
+                    window.lucide.createIcons({ root: ref.current });
+                }
+            }, [name, className]);
+            return <span ref={ref} className="inline-flex items-center justify-center"></span>;
         };
 
         const App = () => {
-            // 完整題庫：包含是非題 (1-3) 與選擇題 (4-9)
             const initialQuestions = [
-                { id: 1, type: 'tf', text: '一個長方體的長和寬不變，高變成原來的 4 倍，體積也會變成原來的 4 倍。', answer: 'O', explanation: '長方體體積 = 長 × 寬 × 高。當長和寬不變，高變 4 倍，體積確實會隨之變為 4 倍。' },
-                { id: 2, type: 'tf', text: '用小正方體積木堆成一個大的正方體，至少需要 4 個小正方體積木。', answer: 'X', explanation: '堆成一個「大的正方體」，邊長至少要 2 個單位，所以需要 2×2×2 = 8 個小正方體。' },
-                { id: 3, type: 'tf', text: '86 的 1/100 倍是 0.86，就是將小數點向左移二位。', answer: 'O', explanation: '乘以 1/100 等於除以 100。每除以一個 10，小數點就向左移動一位，所以移動兩位是正確的。' },
-                { 
-                    id: 4, type: 'mc', text: '「一盒蛋糕有 12 塊，全家人吃掉 5/18 盒，是吃掉多少塊？」下面哪一個算式是正確的？', 
-                    options: ['12 × 5/18', '12 - 5/18', '12 + 5/18', '12 ÷ 5/18'], answer: 0, 
-                    explanation: '求「數量的幾分之幾」使用乘法：總數(12) × 比例(5/18)。' 
-                },
-                { 
-                    id: 5, type: 'mc', text: '74,000,000 毫升相當於多少立方公尺？', 
-                    options: ['7400 立方公尺', '740 立方公尺', '74 立方公尺', '7.4 立方公尺'], answer: 2, 
-                    explanation: '1,000,000 毫升 = 1 立方公尺。74,000,000 ÷ 1,000,000 = 74。' 
-                },
-                { 
-                    id: 6, type: 'mc', text: '「0.01 × 0.0001」的計算結果，和下面哪一個算式的結果一樣？', 
-                    options: ['0.001 × 0.001', '0.001 × 0.1', '0.001 × 0.0001', '0.1 × 0.0001'], answer: 0, 
-                    explanation: '0.01 (兩位) × 0.0001 (四位) = 六位小數。0.001 (三位) × 0.001 (三位) 也是六位。' 
-                },
-                { 
-                    id: 7, type: 'mc', text: '瑋玲拿一條長 26 公尺的繩子，剛好圍成一個長是 7.5 公尺的長方形，面積是多少？', 
-                    options: ['41.25', '21.5', '43.35', '37'], answer: 0, 
-                    explanation: '周長 26 → 長+寬=13。寬 = 13 - 7.5 = 5.5。面積 = 7.5 × 5.5 = 41.25。' 
-                },
-                { 
-                    id: 8, type: 'mc', text: '下圖兩個造型都是用 1 立方公分的積木所排出來的，乙體積比甲大多少？', 
-                    image: 'https://tsuberry.github.io/gogoMath/question001.jpg', // 示意圖
-                    options: ['10 立方公分', '20 立方公分', '30 立方公分', '40 立方公分'], answer: 0, 
-                    explanation: '' 
-                },
-                { 
-                    id: 9, type: 'mc', text: '下列哪一個選項的乘積最大？', 
-                    options: ['7 × 3/3', '7 × 4/9', '7 × 11/4', '7 × 12/4'], answer: 3, 
-                    explanation: '12/4 = 3 是最大的乘數，故乘積最大。' 
-                }
+                { id: 1, type: 'tf', text: '一個長方體的長和寬不變，高變成原來的 4 倍，體積也會變成原來的 4 倍。', answer: 'O', explanation: '長方體體積 = 長 × 寬 × 高。' },
+                { id: 2, type: 'tf', text: '用小正方體積木堆成一個大的正方體，至少需要 4 個小正方體積木。', answer: 'X', explanation: '需要 2×2×2 = 8 個。' },
+                { id: 3, type: 'tf', text: '86 的 1/100 倍是 0.86，就是將小數點向左移二位。', answer: 'O', explanation: '除以 100 等於向左移二位。' },
+                { id: 4, type: 'mc', text: '「一盒蛋糕有 12 塊，全家人吃掉 5/18 盒，是吃掉多少塊？」下面哪一個算式是正確的？', options: ['12 × 5/18', '12 - 5/18', '12 + 5/18', '12 ÷ 5/18'], answer: 0, explanation: '' },
+                { id: 5, type: 'mc', text: '74,000,000 毫升相當於多少立方公尺？', options: ['7400 立方公尺', '740 立方公尺', '74 立方公尺', '7.4 立方公尺'], answer: 2, explanation: '' },
+                { id: 6, type: 'mc', text: '「0.01 × 0.0001」的計算結果，和下面哪一個算式的結果一樣？', options: ['0.001 × 0.001', '0.001 × 0.1', '0.001 × 0.0001', '0.1 × 0.0001'], answer: 0, explanation: '' },
+                { id: 7, type: 'mc', text: '瑋玲拿一條長 26 公尺的繩子，剛好圍成一個長是 7.5 公尺的長方形，面積是多少？', options: ['41.25', '21.5', '43.35', '37'], answer: 0, explanation: '' },
+                { id: 8, type: 'mc', text: '下圖兩個造型都是用 1 立方公分的積木所排出來的，乙體積比甲大多少？', image: 'https://tsuberry.github.io/gogoMath/question001.jpg', options: ['10 立方公分', '20 立方公分', '30 立方公分', '40 立方公分'], answer: 0, explanation: '' },
+                { id: 9, type: 'mc', text: '下列哪一個選項的乘積最大？', options: ['7 × 3/3', '7 × 4/9', '7 × 11/4', '7 × 12/4'], answer: 3, explanation: '' }
             ];
 
-            const [questions, setQuestions] = useState(initialQuestions);
-            const [currentView, setCurrentView] = useState('quiz'); 
+            const [questions] = useState(initialQuestions);
             const [currentIndex, setCurrentIndex] = useState(0);
             const [selectedAnswer, setSelectedAnswer] = useState(null);
             const [showResult, setShowResult] = useState(false);
+            const [userAnswers, setUserAnswers] = useState([]); 
             const [dailyStats, setDailyStats] = useState({ completed: 0, correct: 0 });
-            const [newQuestion, setNewQuestion] = useState({ 
-                text: '', type: 'tf', answer: 'O', explanation: '', options: ['', '', '', ''], image: ''
-            });
 
-            const fileInputRef = useRef(null);
             const progress = useMemo(() => questions.length > 0 ? (currentIndex / questions.length) * 100 : 0, [currentIndex, questions.length]);
+            const optionLabels = ['①', '②', '③', '④'];
 
             const handleAnswer = (choice) => {
                 if (showResult) return;
                 setSelectedAnswer(choice);
                 setShowResult(true);
-                const isCorrect = choice === questions[currentIndex].answer;
+                const currentQuestion = questions[currentIndex];
+                const isCorrect = choice === currentQuestion.answer;
+                setUserAnswers(prev => [...prev, { questionId: currentQuestion.id, userChoice: choice, isCorrect: isCorrect }]);
                 setDailyStats(prev => ({ completed: prev.completed + 1, correct: isCorrect ? prev.correct + 1 : prev.correct }));
             };
 
             const nextQuestion = () => {
-                if (currentIndex < questions.length - 1) {
+                if (currentIndex < questions.length) {
                     setCurrentIndex(currentIndex + 1);
                     setSelectedAnswer(null);
                     setShowResult(false);
-                } else {
-                    setCurrentIndex(questions.length); 
                 }
             };
 
-            const handleImageUpload = (e) => {
-                const file = e.target.files[0];
-                if (file) {
-                    const reader = new FileReader();
-                    reader.onloadend = () => setNewQuestion({ ...newQuestion, image: reader.result });
-                    reader.readAsDataURL(file);
-                }
+            const resetQuiz = () => {
+                setCurrentIndex(0);
+                setSelectedAnswer(null);
+                setShowResult(false);
+                setUserAnswers([]);
+                setDailyStats({ completed: 0, correct: 0 });
             };
-
-            const addQuestion = () => {
-                if (!newQuestion.text) return;
-                const q = { ...newQuestion, id: Date.now(), answer: newQuestion.type === 'tf' ? newQuestion.answer : parseInt(newQuestion.answer) };
-                setQuestions([...questions, q]);
-                setNewQuestion({ text: '', type: 'tf', answer: 'O', explanation: '', options: ['', '', '', ''], image: '' });
-            };
-
-            const optionLabels = ['①', '②', '③', '④'];
 
             return (
-                <div className="min-h-screen selection-none">
+                <div className="min-h-screen selection-none pb-20">
                     {/* 背景霓虹 */}
                     <div className="fixed inset-0 overflow-hidden -z-10 bg-[#020408]">
-                        <div className="absolute top-[-10%] left-[-10%] w-[60%] h-[60%] bg-indigo-600/10 blur-[150px] rounded-full"></div>
-                        <div className="absolute bottom-[-10%] right-[-10%] w-[60%] h-[60%] bg-fuchsia-600/10 blur-[150px] rounded-full"></div>
+                        <div className="absolute top-[-10%] left-[-10%] w-[60%] h-[60%] bg-indigo-600/5 blur-[150px] rounded-full"></div>
+                        <div className="absolute bottom-[-10%] right-[-10%] w-[60%] h-[60%] bg-fuchsia-600/5 blur-[150px] rounded-full"></div>
                     </div>
 
-                    <nav className="max-w-5xl mx-auto flex items-center justify-between px-6 py-8">
-                        <div className="flex items-center gap-4">
-                            <div className="w-12 h-12 bg-gradient-to-br from-indigo-500 to-fuchsia-500 rounded-2xl flex items-center justify-center shadow-2xl shadow-indigo-500/40">
-                                <Icon name="book-open" className="text-white w-7 h-7" />
+                    <nav className="max-w-4xl mx-auto flex items-center justify-between px-6 py-6 border-b border-white/5 bg-black/20 backdrop-blur-md sticky top-0 z-50">
+                        <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 bg-gradient-to-br from-indigo-500 to-fuchsia-500 rounded-xl flex items-center justify-center shadow-lg">
+                                <Icon name="book-open" className="text-white w-6 h-6" />
                             </div>
-                            <div>
-                                <h1 className="text-2xl font-black tracking-tighter">MATH <span className="text-indigo-400">VIBE</span></h1>
-                                <p className="text-[10px] text-slate-500 font-bold tracking-widest uppercase">Comprehensive Exam Suite</p>
-                            </div>
+                            <h1 className="text-xl font-black tracking-tighter">MATH <span className="text-indigo-400">VIBE</span></h1>
                         </div>
-                        <div className="flex bg-white/5 p-1.5 rounded-2xl border border-white/10">
-                            <button onClick={() => setCurrentView('quiz')} className={`px-6 py-2 rounded-xl text-sm font-bold transition-all ${currentView === 'quiz' ? 'bg-indigo-500 text-white shadow-lg shadow-indigo-500/30' : 'text-slate-400 hover:text-white'}`}>作答挑戰</button>
-                            <button onClick={() => setCurrentView('admin')} className={`px-6 py-2 rounded-xl text-sm font-bold transition-all ${currentView === 'admin' ? 'bg-indigo-500 text-white shadow-lg shadow-indigo-500/30' : 'text-slate-400 hover:text-white'}`}>試題管理</button>
+                        <div className="text-right">
+                           <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest mr-2">Progression</span>
+                           <span className="text-sm font-bold text-white tabular-nums">{currentIndex >= questions.length ? questions.length : currentIndex + 1} / {questions.length}</span>
                         </div>
                     </nav>
 
-                    <main className="max-w-4xl mx-auto px-6 pb-20">
-                        {currentView === 'quiz' ? (
-                            <div className="space-y-8 animate-in fade-in duration-700">
-                                <div className="grid grid-cols-3 gap-4">
-                                    <div className="glass p-6 rounded-3xl text-center group hover:border-indigo-500/30 transition-all">
-                                        <Icon name="bar-chart-3" className="w-6 h-6 mx-auto mb-2 text-blue-400 opacity-60" />
-                                        <p className="text-[10px] text-slate-500 font-black uppercase tracking-widest">已完成</p>
-                                        <p className="text-2xl font-black">{dailyStats.completed} 題</p>
-                                    </div>
-                                    <div className="glass p-6 rounded-3xl text-center group hover:border-emerald-500/30 transition-all">
-                                        <Icon name="check-circle-2" className="w-6 h-6 mx-auto mb-2 text-emerald-400 opacity-60" />
-                                        <p className="text-[10px] text-slate-500 font-black uppercase tracking-widest">答對數</p>
-                                        <p className="text-2xl font-black text-emerald-400">{dailyStats.correct}</p>
-                                    </div>
-                                    <div className="glass p-6 rounded-3xl text-center group hover:border-amber-500/30 transition-all">
-                                        <Icon name="trophy" className="w-6 h-6 mx-auto mb-2 text-amber-400 opacity-60" />
-                                        <p className="text-[10px] text-slate-500 font-black uppercase tracking-widest">準確率</p>
-                                        <p className="text-2xl font-black">{dailyStats.completed > 0 ? Math.round((dailyStats.correct/dailyStats.completed)*100) : 0}%</p>
-                                    </div>
+                    <main className="max-w-4xl mx-auto px-4 mt-8">
+                        {currentIndex < questions.length ? (
+                            <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                                <div className="w-full h-1.5 bg-white/5 rounded-full overflow-hidden">
+                                    <div className="h-full bg-gradient-to-r from-indigo-500 to-fuchsia-500 transition-all duration-700" style={{ width: `${progress}%` }}></div>
                                 </div>
 
-                                <div className="w-full h-2.5 bg-white/5 rounded-full overflow-hidden border border-white/5 p-0.5">
-                                    <div className="h-full bg-gradient-to-r from-indigo-500 via-purple-500 to-fuchsia-500 rounded-full transition-all duration-1000 ease-out shadow-[0_0_15px_rgba(99,102,241,0.4)]" style={{ width: `${progress}%` }}></div>
-                                </div>
-
-                                {currentIndex < questions.length ? (
-                                    <div className="glass p-10 md:p-12 rounded-[3rem] shadow-2xl space-y-10 relative overflow-hidden">
-                                        <div className="space-y-6">
-                                            <span className="px-3 py-1 rounded-full bg-indigo-500/10 border border-indigo-500/20 text-[10px] font-black text-indigo-400 uppercase tracking-[0.2em]">
-                                                {questions[currentIndex].type === 'tf' ? '是非題' : '選擇題'}
-                                            </span>
-                                            <h2 className="text-2xl md:text-3xl font-bold leading-relaxed text-slate-100">{questions[currentIndex].text}</h2>
-                                            
-                                            {questions[currentIndex].image && (
-                                                <div className="rounded-[2rem] overflow-hidden border border-white/10 bg-black/40">
-                                                    <img src={questions[currentIndex].image} className="w-full h-auto max-h-[400px] object-contain transition-transform duration-700 hover:scale-105" />
-                                                </div>
-                                            )}
+                                <div className="glass p-8 md:p-12 rounded-[2.5rem] shadow-2xl space-y-10">
+                                    <div className="space-y-6">
+                                        <div className="inline-block px-3 py-1 rounded-full bg-white/5 border border-white/10 text-[10px] font-black text-indigo-400 uppercase tracking-widest">
+                                            {questions[currentIndex].type === 'tf' ? '是非題' : '選擇題'}
                                         </div>
-
-                                        <div className={`grid ${questions[currentIndex].type === 'tf' ? 'grid-cols-2' : 'grid-cols-1 md:grid-cols-2'} gap-6`}>
-                                            {questions[currentIndex].type === 'tf' ? (
-                                                ['O', 'X'].map(choice => (
-                                                    <button key={choice} onClick={() => handleAnswer(choice)} disabled={showResult}
-                                                        className={`p-10 rounded-[2.5rem] border transition-all duration-500 flex flex-col items-center gap-4 ${showResult && questions[currentIndex].answer === choice ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-400' : showResult && selectedAnswer === choice ? 'bg-red-500/20 border-red-500/50 text-red-400' : 'bg-white/5 border-white/10 hover:bg-white/10 hover:border-indigo-500/40 text-slate-400 hover:text-white'}`}
-                                                    >
-                                                        <Icon name={choice === 'O' ? 'check-circle-2' : 'x-circle'} className="w-12 h-12" />
-                                                        <span className="font-black text-xl italic tracking-widest">{choice === 'O' ? 'TRUE (O)' : 'FALSE (X)'}</span>
-                                                    </button>
-                                                ))
-                                            ) : (
-                                                questions[currentIndex].options.map((opt, idx) => (
-                                                    <button key={idx} onClick={() => handleAnswer(idx)} disabled={showResult}
-                                                        className={`p-6 rounded-3xl border text-left transition-all duration-300 flex items-center gap-5 ${showResult && questions[currentIndex].answer === idx ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-400 scale-[1.02]' : showResult && selectedAnswer === idx ? 'bg-red-500/20 border-red-500/50 text-red-400' : 'bg-white/5 border-white/10 hover:bg-white/10 hover:border-indigo-500/40 text-slate-400 hover:text-white'}`}
-                                                    >
-                                                        <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-black text-lg ${showResult && questions[currentIndex].answer === idx ? 'bg-emerald-500 text-white' : 'bg-white/10'}`}>
-                                                            {optionLabels[idx]}
-                                                        </div>
-                                                        <span className="font-bold text-xl">{opt}</span>
-                                                    </button>
-                                                ))
-                                            )}
-                                        </div>
-
-                                        {showResult && (
-                                            <div className="p-8 rounded-[2.5rem] bg-indigo-500/5 border border-indigo-500/20 space-y-6 animate-in zoom-in-95 duration-500">
-                                                <div className="flex items-center gap-4">
-                                                    <div className={`w-10 h-10 rounded-full flex items-center justify-center shadow-lg ${selectedAnswer === questions[currentIndex].answer ? 'bg-emerald-500' : 'bg-red-500'}`}>
-                                                        <Icon name={selectedAnswer === questions[currentIndex].answer ? 'check-circle-2' : 'x-circle'} className="w-6 h-6 text-white" />
-                                                    </div>
-                                                    <div>
-                                                        <p className={`font-black text-xl ${selectedAnswer === questions[currentIndex].answer ? 'text-emerald-400' : 'text-red-400'}`}>
-                                                            {selectedAnswer === questions[currentIndex].answer ? '卓越，完全正確！' : '別放棄，再來一次！'}
-                                                        </p>
-                                                        <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mt-1">
-                                                            正確解答：{questions[currentIndex].type === 'tf' ? questions[currentIndex].answer : optionLabels[questions[currentIndex].answer] + " " + questions[currentIndex].options[questions[currentIndex].answer]}
-                                                        </p>
-                                                    </div>
-                                                </div>
-                                                <div className="p-6 bg-white/5 rounded-2xl border border-white/5 text-slate-300 text-lg leading-relaxed font-medium">
-                                                    {questions[currentIndex].explanation}
-                                                </div>
-                                                <button onClick={nextQuestion} className="w-full py-5 bg-white text-slate-950 font-black rounded-[1.5rem] hover:bg-indigo-100 transition-all flex items-center justify-center gap-3 shadow-xl shadow-white/5 active:scale-95">
-                                                    下一題挑戰 <Icon name="chevron-right" className="w-6 h-6" />
-                                                </button>
+                                        <h2 className="text-2xl md:text-3xl font-bold leading-snug">{questions[currentIndex].text}</h2>
+                                        {questions[currentIndex].image && (
+                                            <div className="rounded-2xl overflow-hidden border border-white/10 bg-black/40 max-w-lg mx-auto">
+                                                <img src={questions[currentIndex].image} className="w-full h-auto object-contain" alt="題目圖片" />
                                             </div>
                                         )}
                                     </div>
-                                ) : (
-                                    <div className="glass p-20 rounded-[4rem] text-center space-y-8 animate-in zoom-in duration-1000">
-                                        <div className="relative inline-block">
-                                            <div className="absolute inset-0 bg-amber-400/20 blur-3xl rounded-full"></div>
-                                            <Icon name="trophy" className="w-24 h-24 text-amber-400 mx-auto animate-bounce relative z-10" />
-                                        </div>
-                                        <div className="space-y-2">
-                                            <h2 className="text-4xl font-black italic tracking-tighter">MISSION ACCOMPLISHED</h2>
-                                            <p className="text-slate-500 font-bold uppercase tracking-[0.3em] text-xs">你已完成所有預設試題挑戰</p>
-                                        </div>
-                                        <button onClick={() => setCurrentIndex(0)} className="px-12 py-4 bg-indigo-500 text-white font-black rounded-2xl shadow-2xl shadow-indigo-500/40 hover:scale-105 transition-all active:scale-95">重新開始測驗</button>
+
+                                    <div className={`grid ${questions[currentIndex].type === 'tf' ? 'grid-cols-2' : 'grid-cols-1 md:grid-cols-2'} gap-4`}>
+                                        {questions[currentIndex].type === 'tf' ? (
+                                            ['O', 'X'].map(choice => (
+                                                <button key={choice} onClick={() => handleAnswer(choice)} disabled={showResult}
+                                                    className={`p-8 rounded-3xl border transition-all duration-300 flex flex-col items-center gap-3 ${showResult && questions[currentIndex].answer === choice ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-400' : showResult && selectedAnswer === choice ? 'bg-red-500/20 border-red-500/50 text-red-400' : 'bg-white/5 border-white/10 text-slate-400 hover:text-white hover:bg-white/10'}`}
+                                                >
+                                                    <Icon name={choice === 'O' ? 'check-circle-2' : 'x-circle'} className="w-10 h-10" />
+                                                    <span className="font-black text-lg">{choice === 'O' ? 'TRUE (O)' : 'FALSE (X)'}</span>
+                                                </button>
+                                            ))
+                                        ) : (
+                                            questions[currentIndex].options.map((opt, idx) => (
+                                                <button key={idx} onClick={() => handleAnswer(idx)} disabled={showResult}
+                                                    className={`p-5 rounded-2xl border text-left transition-all duration-300 flex items-center gap-4 ${showResult && questions[currentIndex].answer === idx ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-400' : showResult && selectedAnswer === idx ? 'bg-red-500/20 border-red-500/50 text-red-400' : 'bg-white/5 border-white/10 text-slate-400 hover:text-white hover:bg-white/10'}`}
+                                                >
+                                                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-black ${showResult && questions[currentIndex].answer === idx ? 'bg-emerald-500 text-white' : 'bg-white/10'}`}>
+                                                        {optionLabels[idx]}
+                                                    </div>
+                                                    <span className="font-bold">{opt}</span>
+                                                </button>
+                                            ))
+                                        )}
                                     </div>
-                                )}
+
+                                    {showResult && (
+                                        <div className="p-6 rounded-3xl bg-indigo-500/10 border border-indigo-500/20 animate-in zoom-in-95">
+                                            <div className="flex items-center gap-4 mb-4">
+                                                <Icon name={selectedAnswer === questions[currentIndex].answer ? 'check-circle-2' : 'x-circle'} className={`w-8 h-8 ${selectedAnswer === questions[currentIndex].answer ? 'text-emerald-400' : 'text-red-400'}`} />
+                                                <p className="font-black text-xl italic uppercase tracking-tighter">
+                                                    {selectedAnswer === questions[currentIndex].answer ? 'Correct' : 'Keep Trying'}
+                                                </p>
+                                            </div>
+                                            <button onClick={nextQuestion} className="w-full py-4 bg-white text-slate-950 font-black rounded-2xl shadow-xl active:scale-95 transition-all uppercase tracking-widest text-sm italic">
+                                                {currentIndex === questions.length - 1 ? 'Finish Quiz' : 'Next Question'}
+                                            </button>
+                                        </div>
+                                    )}
+                                </div>
                             </div>
                         ) : (
-                            <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
-                                <div className="glass p-10 rounded-[3rem] space-y-8 shadow-2xl">
-                                    <div className="flex items-center gap-3 text-indigo-400">
-                                        <Icon name="plus" className="w-6 h-6" />
-                                        <h2 className="text-xl font-black uppercase tracking-widest italic">入庫新試題</h2>
-                                    </div>
-                                    <div className="grid grid-cols-2 gap-6">
-                                        <div className="space-y-2">
-                                            <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">題型類別</label>
-                                            <div className="flex bg-black p-1 rounded-xl border border-white/5">
-                                                <button onClick={()=>setNewQuestion({...newQuestion, type:'tf', answer: 'O'})} className={`flex-1 py-3 text-xs font-black rounded-lg transition-all ${newQuestion.type==='tf'?'bg-indigo-500 text-white':'text-slate-500'}`}>是非題</button>
-                                                <button onClick={()=>setNewQuestion({...newQuestion, type:'mc', answer: '0'})} className={`flex-1 py-3 text-xs font-black rounded-lg transition-all ${newQuestion.type==='mc'?'bg-indigo-500 text-white':'text-slate-500'}`}>選擇題</button>
-                                            </div>
+                            <div className="space-y-10 animate-in fade-in duration-1000">
+                                {/* 結算摘要 */}
+                                <div className="glass p-10 rounded-[3rem] text-center space-y-6 shadow-2xl border-indigo-500/20">
+                                    <Icon name="trophy" className="w-16 h-16 text-amber-400 mx-auto animate-bounce mb-2" />
+                                    <h2 className="text-3xl font-black italic tracking-tighter uppercase leading-none">Quiz Completed</h2>
+                                    <div className="flex justify-center gap-8 py-2">
+                                        <div className="text-center">
+                                            <p className="text-[10px] text-slate-500 font-black uppercase tracking-widest">Correct</p>
+                                            <p className="text-3xl font-black text-emerald-400">{dailyStats.correct}</p>
                                         </div>
-                                        <div className="space-y-2">
-                                            <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">正確答案索引</label>
-                                            <select value={newQuestion.answer} onChange={e=>setNewQuestion({...newQuestion, answer:e.target.value})} className="w-full bg-black border border-white/5 rounded-xl p-3 text-sm font-bold focus:outline-none focus:border-indigo-500/50 transition-colors">
-                                                {newQuestion.type==='tf' ? (<><option value="O">正確 (O)</option><option value="X">錯誤 (X)</option></>) : (<><option value="0">①</option><option value="1">②</option><option value="2">③</option><option value="3">④</option></>)}
-                                            </select>
+                                        <div className="text-center">
+                                            <p className="text-[10px] text-slate-500 font-black uppercase tracking-widest">Accuracy</p>
+                                            <p className="text-3xl font-black text-indigo-400">{Math.round((dailyStats.correct/questions.length)*100)}%</p>
                                         </div>
                                     </div>
-                                    <div className="space-y-2">
-                                        <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">題目文字敘述</label>
-                                        <textarea value={newQuestion.text} onChange={e=>setNewQuestion({...newQuestion, text:e.target.value})} placeholder="例如：74000 毫升等於多少公升？" className="w-full bg-black border border-white/5 rounded-2xl p-5 text-sm focus:border-indigo-500 outline-none min-h-[100px] transition-all" />
-                                    </div>
-                                    <div className="space-y-2">
-                                        <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">附圖資源 (URL 或 上傳)</label>
-                                        <div className="flex gap-3">
-                                            <input type="text" value={newQuestion.image} onChange={e=>setNewQuestion({...newQuestion, image:e.target.value})} placeholder="https://..." className="flex-1 bg-black border border-white/5 rounded-xl p-3 text-xs" />
-                                            <input type="file" ref={fileInputRef} onChange={handleImageUpload} className="hidden" accept="image/*" />
-                                            <button onClick={()=>fileInputRef.current.click()} className="p-3 bg-white/5 rounded-xl border border-white/10 hover:bg-white/10"><Icon name="upload" className="w-5 h-5 text-slate-400"/></button>
-                                        </div>
-                                        {newQuestion.image && <div className="mt-2 h-24 w-full rounded-xl overflow-hidden border border-white/10"><img src={newQuestion.image} className="w-full h-full object-cover opacity-50" /></div>}
-                                    </div>
-                                    <button onClick={addQuestion} className="w-full py-5 bg-gradient-to-r from-indigo-500 to-fuchsia-500 text-white font-black rounded-2xl shadow-xl shadow-indigo-500/20 active:scale-[0.98] transition-all">發布新試題至資料庫</button>
+                                    <button onClick={resetQuiz} className="px-10 py-3 bg-white text-slate-900 font-black rounded-2xl shadow-xl active:scale-95 transition-all text-sm uppercase">再試一次</button>
                                 </div>
 
+                                {/* 精簡版作答回顧清單 */}
                                 <div className="space-y-4">
-                                    <h3 className="text-xs font-black text-slate-500 uppercase tracking-[0.2em] px-2">現有試卷題目庫 ({questions.length})</h3>
+                                    <h3 className="text-[10px] font-black text-slate-500 uppercase tracking-[0.4em] px-2">Result Review ({questions.length})</h3>
+                                    
                                     <div className="grid gap-3">
-                                        {questions.map((q, idx) => (
-                                            <div key={q.id} className="glass p-6 rounded-3xl flex items-center justify-between group transition-all hover:bg-white/5">
-                                                <div className="flex items-center gap-5">
-                                                    <div className="w-10 h-10 rounded-xl bg-black border border-white/10 flex items-center justify-center text-xs font-black text-slate-500 group-hover:text-indigo-400 transition-colors">{idx + 1}</div>
-                                                    <div>
-                                                        <p className="font-bold text-slate-200 line-clamp-1">{q.text}</p>
-                                                        <p className="text-[9px] font-black text-emerald-500 uppercase tracking-widest mt-1">
-                                                            ANSWER: {q.type==='tf' ? q.answer : optionLabels[q.answer]}
-                                                        </p>
+                                        {questions.map((q, idx) => {
+                                            const record = userAnswers.find(a => a.questionId === q.id);
+                                            return (
+                                                <div key={q.id} className={`glass p-4 md:p-6 rounded-2xl border-l-4 transition-all hover:bg-white/[0.05] ${record?.isCorrect ? 'border-l-emerald-500' : 'border-l-red-500'}`}>
+                                                    <div className="flex flex-col md:flex-row md:items-start justify-between gap-4">
+                                                        <div className="flex-1 min-w-0">
+                                                            <div className="flex items-center gap-2 mb-2">
+                                                                <span className="text-[9px] font-black text-slate-600 bg-white/5 px-1.5 py-0.5 rounded uppercase tracking-tighter">NO.{idx + 1}</span>
+                                                                <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded-full ${record?.isCorrect ? 'bg-emerald-500/10 text-emerald-500' : 'bg-red-500/10 text-red-400'}`}>
+                                                                    {record?.isCorrect ? 'Passed' : 'Failed'}
+                                                                </span>
+                                                            </div>
+                                                            <h4 className="text-sm md:text-base font-bold text-slate-100 leading-snug mb-3">{q.text}</h4>
+                                                            
+                                                            {/* 圖片精簡顯示 */}
+                                                            {q.image && (
+                                                                <div className="rounded-xl overflow-hidden border border-white/5 bg-black/40 mb-4 max-w-[200px]">
+                                                                    <img src={q.image} className="w-full h-auto" alt="題目圖片" />
+                                                                </div>
+                                                            )}
+
+                                                            {/* 選擇題選項精簡佈局 */}
+                                                            {q.type === 'mc' && (
+                                                                <div className="flex flex-wrap gap-2 mb-4">
+                                                                    {q.options.map((opt, i) => (
+                                                                        <div key={i} className={`px-2 py-1 rounded-md text-[11px] font-medium border flex items-center gap-1.5 ${q.answer === i ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : (record?.userChoice === i ? 'bg-red-500/10 border-red-500/20 text-red-400' : 'bg-white/5 border-white/5 text-slate-500')}`}>
+                                                                            <span className="opacity-60">{optionLabels[i]}</span> {opt}
+                                                                        </div>
+                                                                    ))}
+                                                                </div>
+                                                            )}
+                                                        </div>
+
+                                                        {/* 答案比對欄 (極簡化) */}
+                                                        <div className="flex md:flex-col gap-2 shrink-0 md:w-32">
+                                                            <div className="flex-1 p-2 rounded-lg bg-white/5 border border-white/5 text-center">
+                                                                <p className="text-[8px] font-bold text-slate-600 uppercase mb-0.5 tracking-tighter">Your Answer</p>
+                                                                <p className={`text-xs font-black ${record?.isCorrect ? 'text-emerald-400' : 'text-red-400'}`}>
+                                                                    {q.type === 'tf' ? record?.userChoice : optionLabels[record?.userChoice]}
+                                                                </p>
+                                                            </div>
+                                                            <div className="flex-1 p-2 rounded-lg bg-indigo-500/10 border border-indigo-500/20 text-center">
+                                                                <p className="text-[8px] font-bold text-indigo-500 uppercase mb-0.5 tracking-tighter">Correct</p>
+                                                                <p className="text-xs font-black text-indigo-400">
+                                                                    {q.type === 'tf' ? q.answer : optionLabels[q.answer]}
+                                                                </p>
+                                                            </div>
+                                                        </div>
                                                     </div>
                                                 </div>
-                                                <button onClick={() => setQuestions(questions.filter(item => item.id !== q.id))} className="p-3 text-slate-600 hover:text-red-400 hover:bg-red-400/10 rounded-xl transition-all"><Icon name="trash-2" className="w-5 h-5" /></button>
-                                            </div>
-                                        ))}
+                                            );
+                                        })}
+                                    </div>
+                                    <div className="text-center py-6">
+                                        <button onClick={resetQuiz} className="text-[10px] font-black text-slate-500 uppercase tracking-[0.4em] hover:text-white transition-colors">Back to Start</button>
                                     </div>
                                 </div>
                             </div>
                         )}
                     </main>
 
-                    <footer className="fixed bottom-6 left-0 right-0 flex justify-center pointer-events-none">
-                        <div className="glass px-6 py-2 rounded-full border border-white/10 shadow-2xl">
-                            <p className="text-[10px] text-slate-500 font-black uppercase tracking-[0.4em] flex items-center gap-3">
-                                <span className="w-1 h-1 bg-indigo-500 rounded-full animate-ping"></span>
-                                Math Vibe Lab • Adaptive Learning Engine
+                    <footer className="fixed bottom-4 left-0 right-0 flex justify-center pointer-events-none z-50">
+                        <div className="glass px-4 py-1.5 rounded-full border border-white/5">
+                            <p className="text-[8px] text-slate-600 font-bold uppercase tracking-[0.5em] flex items-center gap-2">
+                                <span className="w-1 h-1 bg-indigo-500 rounded-full"></span>
+                                Math Vibe • Compact Review Mode
                             </p>
                         </div>
                     </footer>
