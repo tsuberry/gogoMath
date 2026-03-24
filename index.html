@@ -79,7 +79,7 @@
 			{ id: 33, type: 'mc', text: '下表是 1 瓶豆乳的營養成分，喝了 0.8 瓶豆乳含有多少公克的蛋白質？', image: 'https://tsuberry.github.io/gogoMath/question006.png', options: ['7.6', '7.28', '3.26', '6.24'], answer: 3, explanation: '' },
 			{ id: 34, type: 'mc', text: '有一個厚度 1 公分的長方體塑膠箱，外面長 22 公分、寬 15 公分、高 40 公分，注入水後, 水深 20 公分。放入一個 780 立方公分的石頭後，水深變成多少公分？', image: 'https://tsuberry.github.io/gogoMath/question007.png', options: ['23', '24', '25', '26'], answer: 0, explanation: '' },
 			{ id: 35, type: 'mc', text: '浩浩把 $9\\frac{1}{7}$ 公升的汽水平分成 4 份，再把每份平分成 8 小杯，每一杯是多少公升？', options: ['$\\frac{3}{8}$', '$\\frac{1}{6}$', '$\\frac{3}{11}$', '$\\frac{2}{7}$'], answer: 3, explanation: '' },
-			{ id: 36, type: 'mc', text: '宗儒老師用 0.5 公分厚的木板做成一個「有蓋」的正方體盒子，盒子「內部」每邊長 6 公分，盒子的容積是幾立方公分？', options: ['274.625', '181.5', '166.375', '216'], answer: 3, explanation: '' }
+			{ id: 36, type: 'mc', text: '宗儒老師用 0.5 公分厚的木板做成一個「有蓋」的正方體盒子，盒子「內部」每邊長 6 公分，盒子的容積是幾立方公分？', options: ['274.625', '181.5', '166.375', '216'], answer: 3, explanation: '' }			
         ];
 
         /**
@@ -388,6 +388,19 @@
                                         )}
                                     </div>
 
+                                    {!showResult && (
+                                        <div className="pt-2 flex justify-center animate-in fade-in duration-500">
+                                            <button 
+                                                onClick={nextQuestion} 
+                                                disabled={isProcessing}
+                                                className="flex items-center gap-2 px-6 py-3 rounded-2xl bg-white/5 border border-white/10 text-slate-400 hover:text-white hover:bg-white/10 transition-all text-[11px] font-black uppercase tracking-widest active:scale-95"
+                                            >
+                                                <Icon name="clock" className="w-4 h-4" />
+                                                需要再想想 (先跳過)
+                                            </button>
+                                        </div>
+                                    )}
+
                                     {showResult && (
                                         <div className="p-6 rounded-3xl bg-indigo-500/10 border border-indigo-500/20 animate-in zoom-in-95 backdrop-blur-sm shadow-xl">
                                             <div className="flex items-center gap-4 mb-4">
@@ -408,7 +421,9 @@
                                 <div className="glass p-10 rounded-[3rem] text-center space-y-6 shadow-2xl border-indigo-500/10">
                                     <Icon name="award" className="w-16 h-16 text-amber-400 mx-auto animate-bounce mb-2" />
                                     <h2 className="text-3xl font-black italic tracking-tighter uppercase leading-none">
-                                        {filterMode === 'unfinished' ? '任務清空！' : '作答數據回顧'}
+                                        {filterMode === 'unfinished' 
+                                            ? (userAnswers.length === initialQuestions.length ? '全部任務清空！' : '本回合結束！') 
+                                            : '作答數據回顧'}
                                     </h2>
                                     <p className="text-slate-500 text-sm font-bold uppercase tracking-[0.2em]">完成度: {userAnswers.length} / {initialQuestions.length}</p>
                                     <div className="flex justify-center gap-4 pt-2">
